@@ -1,5 +1,6 @@
 import networkx as nx
 from matplotlib.pyplot import plot, ion, show
+from functools import partial
 
 graph = {
         '1': '2 7',
@@ -28,6 +29,7 @@ for k, v in graph.items():
 # Interactive mode
 ion()
 nx.draw(g, with_labels=True)
+show()
 
 def search(graph_, concat_func):
     seen = []
@@ -47,9 +49,12 @@ def new_discovered_first(new_discovered, need_visit):
 def already_discovered_first(new_discovered, need_visit):
     return need_visit + new_discovered
 
-print('dfs:')
-search(graph, new_discovered_first)
-print('bfs:')
-search(graph, already_discovered_first)
+dfs = partial(search, concat_func=new_discovered_first)
 
-show()
+bfs = partial(search, concat_func=already_discovered_first)
+
+print('dfs:')
+dfs(graph)
+print('bfs:')
+bfs(graph)
+
