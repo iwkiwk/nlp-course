@@ -77,6 +77,9 @@ for i in range(len(path_list)):
                 connection_dict[to].append(start)
             # f.write('from:{}, to:{}, len:{}\n'.format(start, to, length))
 
+subway_graph = nx.Graph(connection_dict)
+nx.draw(subway_graph, with_labels=True, node_size=10)
+
 
 def get_station_dis(station1, station2):
     if (station1, station2) in length_dict.keys():
@@ -108,7 +111,100 @@ def search_graph(graph, start, destination):
     return []
 
 
-search_graph(connection_dict, '石门', '西单')
+def is_goal(node, dest):
+    return node == dest
+
+
+def get_successor(graph, node):
+    return graph[node]
+
+
+def get_path_distance(path):
+    dis = 0
+    for i in range(1, len(path)):
+        dis += get_station_dis(path[i], path[i - 1])
+    return dis
+
+
+way = search_graph(connection_dict, '青年路', '七里庄')
+print(way)
+get_path_distance(way)
+
+
+## Dijkstra ##
+def dijkstra(graph, source, dest):
+    results = []
+    included = []
+    for vertex in graph.keys():
+        lt = []
+        lt.append(vertex)
+
+        if vertex == source:
+            lt.append(0)
+            lt.append(None)
+            included.append(True)
+        elif vertex in graph[source]:
+            lt.append(get_station_dis(source, vertex))
+            lt.append(source)
+            included.append(False)
+        else:
+            lt.append(float('inf'))
+            lt.append(None)
+            included.append(False)
+
+        results.append(lt)
+
+    # print(results)
+    # print(included)
+
+    while False in included:
+        indices = []
+        for i in range(len(included)):
+            if not included[i]:
+                indices.append(i)
+
+        dis = [results[i][1] for i in indices]
+        min_dis_ind = indices[dis.index(min(dis))]
+        included[min_dis_ind] = True
+        F = results[min_dis_ind][0]
+
+        for i in range(len(included)):
+            if not included[i]:
+                T = results[i][0]
+                if T in graph[F]:
+                    new_dis = results[min_dis_ind][1] + get_station_dis(F, T)
+                    if new_dis < results[i][1]:
+                        results[i][1] = new_dis
+                        results[i][2] = F
+
+    # print(results)
+    # return results
+
+    def gen_dict_from_results(result):
+        ret = {}
+        for r in result:
+            ret[r[0]] = r
+        return ret
+
+    def get_final_path(result, s, d):
+        path = []
+        path.append(d)
+        node = result[d][2]
+        while node != s:
+            path.append(node)
+            node = result[node][2]
+        path.append(s)
+        return path
+
+    ans = gen_dict_from_results(results)
+    path = get_final_path(ans, source, dest)
+
+    return path
+
+
+path = dijkstra(connection_dict, '青年路', '七里庄')
+print(list(reversed(path)))
+get_path_distance(path)
 
 # with open('len.txt', 'w', encoding='utf-8') as f:
 #     for d in length_dict.keys():
@@ -123,10 +219,7 @@ search_graph(connection_dict, '石门', '西单')
 #             f.write(v + '\t')
 #         f.write('\n')
 
-subway_graph = nx.Graph(connection_dict)
-nx.draw(subway_graph, with_labels=True, node_size=10)
-
-len(subway_graph)
+# len(subway_graph)
 
 # with open('subway_lat_long.txt', 'r', encoding='utf-8') as f:
 #     subway_geo_content = f.read()
