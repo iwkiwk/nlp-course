@@ -1,10 +1,8 @@
-from collections import defaultdict
-import re
-import networkx as nx
-import matplotlib.pyplot as plt
 import math
+from collections import defaultdict
 from itertools import product
-import numpy as np
+
+import networkx as nx
 
 subway_paths = defaultdict(list)  # 线路及包含站点
 subway_connections = defaultdict(list)  # 站点连接
@@ -199,21 +197,38 @@ def least_path_num(path):
 
 # 途经某些站
 def search_by_way(start, by_way, dest):
-    dis = []
-    for node in by_way:
-        dis.append(get_station_dis(start, node))
-    inds = np.argsort(dis)
-    return [start] + [by_way[i] for i in inds] + [dest]
+    on_paths = get_on_paths(by_way)
+    hold_paths = get_more_path(subway_path_connections, station_path[start][0], station_path[dest][0], 200)
+    on_path, hold_path = get_by_way_path(on_paths, hold_paths)
+    pa_st = defaultdict(list)
+    pa_st[station_path[start][0]].append(start)
+    for i, p in enumerate(hold_path):
+        if i > 0:
+            pa_st[p].append(
+                subway_paths[hold_path[i - 1]][get_cross_index_on_prev_path(hold_path[i - 1], hold_path[i])])
+        for j, q in enumerate(on_path):
+            if q == p:
+                pa_st[p].append(by_way[j])
+        if i != len(hold_path) - 1:
+            pa_st[p].append(subway_paths[p][get_cross_index_on_prev_path(hold_path[i], hold_path[i + 1])])
+    pa_st[station_path[dest][0]].append(dest)
+
+    path = []
+    for p in pa_st:
+        path += get_by_way_path_to_cross(p, pa_st[p][0], pa_st[p][1:-1], pa_st[p][-1])
+    path.append(dest)
+    return path
 
 
 # 从可选路线中找到包含需要经过的路线的路线
 def get_by_way_path(on_paths, hold_paths):
     for pi in product(*on_paths):
-        is_all_in = True
         for pj in hold_paths:
+            is_all_in = True
             for i in pi:
                 if i not in pj:
                     is_all_in = False
+                    break
             if is_all_in:
                 return list(pi), pj
     return [], []
@@ -224,7 +239,7 @@ def get_more_path(graph, start, dest, beam):
     # seen = set()
     chosen_path = []
     while paths:
-        path = paths.pop()
+        path = paths.pop(0)
         frontier = path[-1]
         # if frontier in seen:
         #     continue
@@ -257,15 +272,24 @@ def get_cross_index_on_prev_path(pn1, pn2):
 
 
 # 在pn这条线路上从start开始经过passes中若干站点到达cross
+# ----b----a----c---- 支持这种线路上从起点a经过b到达c的折回路线(不包含c简化其他部分运算)
 def get_by_way_path_to_cross(pn, start, passes, cross):
     si = get_station_index_on_path(start, pn)
     pii = [get_station_index_on_path(p, pn) for p in passes]
     ci = get_station_index_on_path(cross, pn)
-    return [si] + pii + [ci]
+    inds = [si] + pii + [ci]
+    if si < ci:
+        pt = get_one_way(pn, si, min(inds)) + get_one_way(pn, min(inds), max(inds)) + get_one_way(pn, max(inds), ci)
+    else:
+        pt = get_one_way(pn, si, max(inds)) + get_one_way(pn, max(inds), min(inds)) + get_one_way(pn, min(inds), ci)
+    return pt
 
 
-result25 = get_by_way_path_to_cross('北京地铁1号线', '古城', ['八宝山', '复兴门', '五棵松'], '公主坟')
-print(result25)
+def get_one_way(pn, si, ei):
+    if si < ei:
+        return [subway_paths[pn][i] for i in range(si, ei)]
+    else:
+        return [subway_paths[pn][si + ei - i] for i in range(ei, si)]
 
 
 # 最少换乘解法2
@@ -403,6 +427,16 @@ def dijkstra(graph, start, dest):
     return list(reversed(path))
 
 
+def draw_path(path):
+    pg = defaultdict(list)
+    for i, p in enumerate(path):
+        if i != len(path) - 1:
+            pg[p].append(path[i + 1])
+
+    graph = nx.Graph(pg)
+    nx.draw(graph, pos=stations_lon_lat, with_labels=True, node_size=20, edge_color='green', width=4.0)
+
+
 get_station_dis('八宝山', '五棵松')
 get_path_length(['八宝山', '玉泉路', '五棵松'])
 
@@ -422,10 +456,18 @@ result7 = search_path(subway_connections, '青年路', '七里庄', min_pass_nod
 result8 = search_path(subway_connections, '石门', '西单', min_pass_nodes)
 result9 = search_path(subway_connections, '昌平', '分钟寺', min_pass_nodes)
 
+# 昌平到分钟寺的路线与高德的推荐首条路线图对比见本程序目录下图片
+# 推荐路线基本是遵守换乘少的策略
+# 本程序的路线与高德都是换乘两次，高德还会根据客流拥挤程度推荐
 result10 = search_path(subway_connections, '昌平', '分钟寺', min_transfer)
 result11 = least_path_num(result10)
 print(result10)
 print(result11)
+result26 = get_on_paths(result10)
+print(result26)
+draw_path(result10)
+draw_path(result5)
+print(least_path_num(result5))
 
 result12 = search_path(subway_connections, '昌平', '分钟寺', comprehensive)
 print(result12)
@@ -476,7 +518,7 @@ print(result17)
 result18 = get_least_path_num(result17)
 print(result18)
 
-result19 = search_by_way('石门', ['知春里', '北苑', '长春桥'], '玉泉路')
+result19 = get_by_way_path_to_cross('北京地铁1号线', '玉泉路', ['公主坟'], '复兴门')
 print(result19)
 
 result20 = get_more_path(subway_path_connections, '北京地铁15号线', '北京地铁房山线', 100)
@@ -494,3 +536,6 @@ print(result23)
 
 result24 = get_cross_index_on_prev_path('北京地铁1号线', '北京地铁2号线')
 print(result24)
+
+result25 = search_by_way('石门', ['西土城', '北苑', '六里桥'], '玉泉路')
+print(result25)
