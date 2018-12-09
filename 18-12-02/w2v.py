@@ -41,12 +41,14 @@ def prepare_corpus():
 def train_w2v_model():
     start_time = time.time()
     w2v_model = Word2Vec(LineSentence('train_corpus.txt'), workers=4)  # Using 4 threads
-    w2v_model.wv.save('w2v_gensim')
+    w2v_model.save('w2v.model') # Can be used for continue trainning
+    # w2v_model.wv.save('w2v_gensim') # Smaller and faster but can't be trained later
     print('elapsed time:', time.time() - start_time)
 
 
 def get_model_from_file():
-    model = KeyedVectors.load('w2v_gensim', mmap='r')
+    # model = KeyedVectors.load('w2v_gensim', mmap='r')
+    model = Word2Vec.load('w2v.model')
     return model
 
 
@@ -84,14 +86,16 @@ def tsne_plot(model):
 
 
 if __name__ == '__main__':
+    # train_w2v_model()
+    
     w2v_model = get_model_from_file()
     print(w2v_model.wv['数学'])
     print(w2v_model.wv.most_similar('数学'))
-
+    
     font = {'family': 'simhei',
             'weight': 'regular',
             'size': '12'}
     plt.rc('font', **font)
     plt.rc('axes', unicode_minus=False)
-
+    
     tsne_plot(w2v_model)
