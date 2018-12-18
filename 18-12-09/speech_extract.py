@@ -173,7 +173,7 @@ if __name__ == '__main__':
     my_ltp = MyLtp()
 
     with open('speech.csv', 'a', encoding='gb18030') as fout:
-        for ll in range(64800, len(all_lines)):
+        for ll in range(0, len(all_lines)):
 
             if ll % 1000 == 0:
                 print('processed: ', ll)
