@@ -6,9 +6,10 @@ from collections import defaultdict
 
 import jieba
 import numpy as np
+import pandas as pd
 from gensim.models import Word2Vec
 
-import ltp_api  # 导入ltp_api.py中的接口
+from ltp_api import MyLtp  # 导入ltp_api.py中的接口
 
 
 # 加载训练好的维基W2V模型
@@ -39,6 +40,7 @@ def write_news_corpus_to_file(news, filename):
         for i in range(len(news)):
             try:
                 co = news['content'][i].replace('\r\n', '\n')
+                co = co.replace('\\n', '\n')  # characters '\n' in text
                 for line in co.split('\n'):
                     l = line.strip()
                     if l:
@@ -46,7 +48,8 @@ def write_news_corpus_to_file(news, filename):
                         f.write(' '.join(li))
                         f.write('\n')
             except:
-                print(news['content'][i])
+                # print(news['content'][i]) # 'nan'
+                pass
 
 
 # 在训练好的模型上增加更多训练预料训练
@@ -167,31 +170,47 @@ if __name__ == '__main__':
 
     all_lines = linecache.getlines('news_corpus.txt')
 
-    # with open('news_corpus.txt', 'r', encoding='utf-8') as fin:
+    my_ltp = MyLtp()
+
     with open('speech.csv', 'a', encoding='gb18030') as fout:
-        i = 0
-        for ll in range(0, 300):
+        for ll in range(64800, len(all_lines)):
+
+            if ll % 1000 == 0:
+                print('processed: ', ll)
+
             line = all_lines[ll]
-            words = line.split()
+            lc = []
+            if len(line) > 1000: # 处理句子过长的情况
+                lc = line.split('。')
+            else:
+                lc = [line]
 
-            ne, talk, sents = ltp_api.get_character_speech(words, talk_sims)
+            for li in lc:
+                words = li.split()
+                if len(words) == 0: continue
 
-            if len(sents) != 0:
-                print('ne:', ne)
-                print('talk:', talk)
-                print('sents:', sents)
-                sims = [1.0]
+                ne, talk, sents = my_ltp.get_character_speech(words, talk_sims)
 
-                if len(sents) > 1:
-                    sent_mat = get_sentences_vec(w2v_model, sents, get_word_frequency)
-                    sims = get_sent_vec_sims(sent_mat)
-                    # print(sims)
+                if len(sents) != 0:
+                    # print('ne:', ne)
+                    # print('talk:', talk)
+                    # print('sents:', sents)
 
-                final_sents = get_final_sents(sents, sims)
+                    sims = [1.0]
+                    if len(sents) > 1:
+                        sent_mat = get_sentences_vec(w2v_model, sents, get_word_frequency)
+                        sims = get_sent_vec_sims(sent_mat)
+                        # print(sims)
 
-                fout.write(ne)
-                fout.write(',')
-                fout.write(talk)
-                fout.write(',')
-                fout.write(''.join(final_sents))
-                fout.write('\n')
+                    final_sents = get_final_sents(sents, sims)
+                    content = ''.join(final_sents)
+
+                    if len(content) > 0:
+                        fout.write(ne)
+                        fout.write(',')
+                        fout.write(talk)
+                        fout.write(',')
+                        fout.write(content)
+                        fout.write('\n')
+
+    my_ltp.clean()
