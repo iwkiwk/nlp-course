@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 from urllib import request
@@ -10,7 +11,7 @@ def download_url(url):
 
 
 def write_to_file(content, filename):
-    with open(filename, 'w+', encoding='gb18030') as fout:
+    with open(filename, 'a', encoding='gb18030') as fout:
         fout.write(content)
 
 
@@ -72,9 +73,14 @@ if __name__ == '__main__':
             thread_urls = get_thread_list_from_page_content(fpc)
             for url in thread_urls:
                 tc = extract_content_from_thread(url)
+                tcl = tc.split('\n')
                 fn = re.findall(r'(thread.+?\.html)', url)
                 if fn:
-                    write_to_file(tc, fn[0])
-                    count += 1
-                    if count > 10000:
-                        sys.exit(0)
+                    if not os.path.exists(fn[0]):
+                        for el in tcl:
+                            if el.strip():
+                                write_to_file(el.strip() + '\n', fn[0])
+                        count += 1
+                        print('process file:', count)
+                        if count > 10000:
+                            sys.exit(0)
