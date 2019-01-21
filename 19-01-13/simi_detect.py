@@ -1,4 +1,6 @@
 import random
+import re
+from collections import Counter
 
 import jieba
 import numpy as np
@@ -11,6 +13,73 @@ from sklearn.neighbors import KNeighborsClassifier
 def get_w2v_model(filename):
     model = Word2Vec.load(filename)
     return model
+
+
+def rm_spec(sent):
+    ret = re.sub('[\n\s+\.\!\/_,$%^*(+\"\')]+|[+——\-()?【】《》“”！，。？、~@#￥%……&*（）]+', '', sent)
+    if ret:
+        return ret
+    return ''
+
+
+def write_news_corpus_to_file(filename, news, lst):
+    ret = []
+    with open(filename, 'w', encoding='utf-8') as fout:
+        for i in lst:
+            sent = news['content'][i]
+            sent = rm_spec(sent)
+            wd_lst = jieba.lcut(sent)
+            if wd_lst:
+                fout.write(' '.join(wd_lst))
+                fout.write('\n')
+                ret.append(i)
+    return ret
+
+
+def add_more_train_corpus(model, filename):
+    sen_list = []
+    with open(filename, 'r', encoding='utf-8') as fin:
+        for line in fin.readlines():
+            sen_list.append(line.split())
+    model.train(sentences=sen_list, total_examples=len(sen_list), epochs=1)
+
+
+def word_freq(corpus_file):
+    word_list = []
+    with open(corpus_file, 'r', encoding='utf-8') as fin:
+        for line in fin.readlines():
+            word_list += line.split()
+    cc = Counter(word_list)
+    num_all = sum(cc.values())
+
+    def get_word_freq(word):
+        return cc[word] / num_all
+
+    return get_word_freq
+
+
+def write_sent_vec_to_file(filename, model, get_wd_freq, corpus_file):
+    a = 0.001
+    row = model.wv.vector_size
+    with open(filename, 'w') as fout:
+        with open(corpus_file, 'r', encoding='utf-8') as fin:
+            for line in fin.readlines():
+                sent_vec = np.zeros(row)
+                wd_lst = line.split()
+                for wd in wd_lst:
+                    try:
+                        pw = get_wd_freq(wd)
+                        w = a / (a + pw)
+                        sent_vec += w * np.array(model.wv[wd])
+                    except:
+                        pass
+                fout.write(' '.join([str(i) for i in sent_vec]))
+                fout.write('\n')
+
+
+def get_all_sent_vec(filename):
+    ret = np.fromfile(filename, dtype=np.float, sep=' ')
+    return np.reshape(ret, (-1, 100))
 
 
 def get_list_with_content(news):
@@ -47,8 +116,23 @@ def get_remain_samples_list(all_samples, part_samples):
     return ret
 
 
+# Classify using kNN
+def KNNClassifier(mat, xna_trn_lst, otr_trn_lst, xna_test_lst, otr_test_lst):
+    X_train = mat[xna_trn_lst + otr_trn_lst, :]
+    y_train = np.array([0] * X_train.shape[0])
+    for i in xna_trn_lst:
+        y_train[i] = 1
+
+    neigh = KNeighborsClassifier(n_neighbors=20)
+    neigh.fit(X_train, y_train)
+    for i in range(10):
+        print(mat[xna_test_lst[i]])
+        print(neigh.predict([mat[xna_test_lst[i]]]))
+
+
 news_df = pd.read_csv('sqlResult_1558435.csv', encoding='gb18030')
 lst_with_content = get_list_with_content(news_df)
+lst_with_content = write_news_corpus_to_file('news_corpus.txt', news_df, lst_with_content)
 
 # Find XNA news in news corpus
 xna_news_lst = get_xna_news_index(news_df, lst_with_content)
@@ -64,15 +148,12 @@ other_samples_test = get_remain_samples_list(other_samples, other_samples_train)
 
 # Get tfidf vector
 # tfidf method for large corpus has large memory footprint, need to replace it with w2v embedding
-tfidf_mat = get_tfidf_mat(news_df, lst_with_content).toarray()
+# tfidf_mat = get_tfidf_mat(news_df, lst_with_content).toarray()
 
-X_train = tfidf_mat[xna_samples_train + other_samples_train, :]
-y_train = np.array([0] * X_train.shape[0])
-for i in xna_samples_train:
-    y_train[i] = 1
+w2v_model = get_w2v_model('wiki_w2v.model')
+add_more_train_corpus(w2v_model, 'news_corpus.txt')
+get_word_prob = word_freq('news_corpus.txt')
+write_sent_vec_to_file('sent_vec.txt', w2v_model, get_word_prob, 'news_corpus.txt')
+all_sent_mat = get_all_sent_vec('sent_vec.txt')
 
-# Classify using kNN
-neigh = KNeighborsClassifier(n_neighbors=10)
-neigh.fit(X_train, y_train)
-for i in range(10):
-    print(neigh.predict([tfidf_mat[xna_samples_test[i]]]))
+KNNClassifier(all_sent_mat, xna_samples_train, other_samples_train, xna_samples_test, other_samples_test)
