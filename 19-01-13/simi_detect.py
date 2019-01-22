@@ -74,6 +74,15 @@ def get_index_lst_from_dict(di, lst):
     return ret
 
 
+def get_idx_lst_from_dict(di, idx):
+    ret = []
+    start = di[idx][0]
+    end = di[idx][1]
+    for t in range(start, end):
+        ret.append(t)
+    return ret
+
+
 def word_freq(corpus_file):
     word_list = []
     with open(corpus_file, 'r', encoding='utf-8') as fin:
@@ -88,23 +97,24 @@ def word_freq(corpus_file):
     return get_word_freq
 
 
-def write_sent_vec_to_file(filename, model, get_wd_freq, corpus_file):
+def write_sent_vec_to_file(model, get_wd_freq, corpus_file):
     a = 0.001
-    row = model.wv.vector_size
-    with open(filename, 'w') as fout:
-        with open(corpus_file, 'r', encoding='utf-8') as fin:
-            for line in fin.readlines():
-                sent_vec = np.zeros(row)
-                wd_lst = line.split()
-                for wd in wd_lst:
-                    try:
-                        pw = get_wd_freq(wd)
-                        w = a / (a + pw)
-                        sent_vec += w * np.array(model.wv[wd])
-                    except:
-                        pass
-                fout.write(' '.join([str(i) for i in sent_vec]))
-                fout.write('\n')
+    col = model.wv.vector_size
+    with open(corpus_file, 'r', encoding='utf-8') as fin:
+        all_lines = fin.readlines()
+        ret = np.zeros((len(all_lines), col))
+        for idx, line in enumerate(all_lines):
+            sent_vec = np.zeros(col)
+            wd_lst = line.split()
+            for wd in wd_lst:
+                try:
+                    pw = get_wd_freq(wd)
+                    w = a / (a + pw)
+                    sent_vec += w * np.array(model.wv[wd])
+                except:
+                    pass
+            ret[idx] = sent_vec
+        return ret
 
 
 def get_all_sent_vec(filename):
@@ -143,23 +153,61 @@ def lst2file(filename, lst):
         fout.write('\n'.join([str(i) for i in lst]) + '\n')
 
 
+def get_precision_and_recall(xna_test_res, otr_test_res):
+    cc1 = Counter(xna_test_res)
+    cc2 = Counter(otr_test_res)
+    tp = cc1[1]
+    fp = cc2[1]
+    tn = cc2[0]
+    fn = cc1[0]
+    preci = tp / (tp + fp)
+    recal = tp / (tp + fn)
+    return preci, recal
+
+
 # Classify using kNN
-def KNNClassifier(mat, xna_trn_lst, otr_trn_lst, xna_test_lst, otr_test_lst):
-    X_train = mat[xna_trn_lst + otr_trn_lst, :]
+def KNNClassifier(mat, idx_dict, xna_trn_lst, otr_trn_lst, xna_test_lst, otr_test_lst):
+    xna_trn_sent_lst = get_index_lst_from_dict(idx_dict, xna_trn_lst)
+    otr_trn_sent_lst = get_index_lst_from_dict(idx_dict, otr_trn_lst)
+    print('XNA news amount for training:', len(xna_trn_sent_lst))
+    print('Other news amount for training:', len(otr_trn_sent_lst))
+
+    X_train = mat[xna_trn_sent_lst + otr_trn_sent_lst, :]
     Y = np.array([0] * mat.shape[0])
-    for i in xna_trn_lst:
-        Y[i] = 1
-    y_train = Y[xna_trn_lst + otr_trn_lst]
+    for i in xna_trn_sent_lst: Y[i] = 1
+    y_train = Y[xna_trn_sent_lst + otr_trn_sent_lst]
 
     neigh = KNeighborsClassifier(n_neighbors=10)
     neigh.fit(X_train, y_train)
 
     xna_test = []
     otr_test = []
-    for i in range(len(xna_test_lst)):
-        xna_test.append(neigh.predict([mat[xna_test_lst[i]]])[0])
-    for i in range(len(otr_test_lst)):
-        otr_test.append(neigh.predict([mat[otr_test_lst[i]]])[0])
+    threshold = 0.3  # Similiar sentence amount over 30% is classified as plagiarized
+
+    for xt in xna_test_lst:
+        sent_lst = get_idx_lst_from_dict(idx_dict, xt)
+        scores = []
+        for si in sent_lst:
+            sco = neigh.predict([mat[si]])[0]
+            scores.append(sco)
+        cc = Counter(scores)
+        if cc[1] / len(sent_lst) > threshold:
+            xna_test.append(1)
+        else:
+            xna_test.append(0)
+
+    for ot in otr_test_lst:
+        sent_lst = get_idx_lst_from_dict(idx_dict, ot)
+        scores = []
+        for si in sent_lst:
+            sco = neigh.predict([mat[si]])[0]
+            scores.append(sco)
+        cc = Counter(scores)
+        if cc[1] / len(sent_lst) > threshold:
+            otr_test.append(1)
+        else:
+            otr_test.append(0)
+
     return xna_test, otr_test
 
 
@@ -183,20 +231,17 @@ otr_news_lst = get_remain_list(list(index_dict.keys()), xna_news_lst)
 #     fout.write('\n')
 
 # Set 90% samples for training, 10% for testing
-xna_news_sent_lst = get_index_lst_from_dict(index_dict, xna_news_lst)
-otr_news_sent_lst = get_index_lst_from_dict(index_dict, otr_news_lst)
+# xna_news_sent_lst = get_index_lst_from_dict(index_dict, xna_news_lst)
+# otr_news_sent_lst = get_index_lst_from_dict(index_dict, otr_news_lst)
 
-samples_n = int(len(xna_news_sent_lst) * 0.9)
+samples_n = int(len(xna_news_lst) * 0.9)
 
-xna_samples_train = random.sample(xna_news_sent_lst, samples_n)
-xna_samples_test = get_remain_list(xna_news_sent_lst, xna_samples_train)
+xna_samples_train = random.sample(xna_news_lst, samples_n)
+xna_samples_test = get_remain_list(xna_news_lst, xna_samples_train)
 
-otr_samples = random.sample(otr_news_sent_lst, len(xna_news_sent_lst))
+otr_samples = random.sample(otr_news_lst, len(xna_news_lst))
 otr_samples_train = random.sample(otr_samples, samples_n)
 otr_samples_test = get_remain_list(otr_samples, otr_samples_train)
-
-print('XNA news amount for training:', len(xna_samples_train))
-print('Other news amount for training:', len(otr_samples_train))
 
 # f = open('train_lst.txt', 'w')
 # f.write('\n'.join([str(i) for i in xna_train_lst]))
@@ -209,10 +254,12 @@ print('Other news amount for training:', len(otr_samples_train))
 w2v_model = get_w2v_model('wiki_w2v.model')
 add_more_train_corpus(w2v_model, 'news_corpus.txt')
 get_word_prob = word_freq('news_corpus.txt')
-write_sent_vec_to_file('sent_vec.txt', w2v_model, get_word_prob, 'news_corpus.txt')
-all_sent_mat = get_all_sent_vec('sent_vec.txt')
+all_sent_mat = write_sent_vec_to_file(w2v_model, get_word_prob, 'news_corpus.txt')
 
-xna_test_result, otr_test_result = KNNClassifier(all_sent_mat, xna_samples_train, otr_samples_train, xna_samples_test,
+xna_test_result, otr_test_result = KNNClassifier(all_sent_mat, index_dict, xna_samples_train, otr_samples_train,
+                                                 xna_samples_test,
                                                  otr_samples_test)
 lst2file('xna_test_result.txt', xna_test_result)
 lst2file('otr_test_result.txt', otr_test_result)
+precision, recall = get_precision_and_recall(xna_test_result, otr_test_result)
+print(precision, recall)
