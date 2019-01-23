@@ -15,9 +15,13 @@ from collections import defaultdict
 import jieba
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 from gensim.models import Word2Vec
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
 
 
 # Load trained w2v model
@@ -184,20 +188,56 @@ def get_precision_and_recall(xna_test_res, otr_test_res):
     return preci, recal
 
 
-# Classify using kNN
-def KNNClassifier(mat, idx_dict, xna_trn_lst, otr_trn_lst, xna_test_lst, otr_test_lst):
+def KNNClassifier(xTrain, yTrain):
+    neigh = KNeighborsClassifier(n_neighbors=10)
+    neigh.fit(xTrain, yTrain)
+    return neigh
+
+
+def SVMClassifier(xTrain, yTrain):
+    clf = SVC(gamma='auto')
+    clf.fit(xTrain, yTrain)
+    return clf
+
+
+def DTClassifier(xTrain, yTrain):
+    clf = DecisionTreeClassifier()
+    clf.fit(xTrain, yTrain)
+    return clf
+
+
+def RFClassifier(xTrain, yTrain):
+    clf = RandomForestClassifier(n_estimators=10, max_depth=10)
+    clf.fit(xTrain, yTrain)
+    return clf
+
+
+class XGBClassifier:
+    def __init__(self, xTrain, yTrain):
+        dtrain = xgb.DMatrix(xTrain, label=yTrain)
+        params = {'objective': 'binary:logitraw', 'silent': 1, 'n_estimators': 1000,
+                  'max_depth': 8}
+        self.clf = xgb.train(params, dtrain)
+
+    def predict(self, mat):
+        test = xgb.DMatrix(mat)
+        res = self.clf.predict(test)
+        return res.astype(int)
+
+
+# Classify main process
+def main_func(classifier, mat, idx_dict, xna_trn_lst, otr_trn_lst, xna_test_lst, otr_test_lst):
     xna_trn_sent_lst = get_index_lst_from_dict(idx_dict, xna_trn_lst)
     otr_trn_sent_lst = get_index_lst_from_dict(idx_dict, otr_trn_lst)
-    print('XNA news amount for training:', len(xna_trn_sent_lst))
-    print('Other news amount for training:', len(otr_trn_sent_lst))
+    # print('XNA news amount for training:', len(xna_trn_sent_lst))
+    # print('Other news amount for training:', len(otr_trn_sent_lst))
 
     X_train = mat[xna_trn_sent_lst + otr_trn_sent_lst, :]
     Y = np.array([0] * mat.shape[0])
     for i in xna_trn_sent_lst: Y[i] = 1
     y_train = Y[xna_trn_sent_lst + otr_trn_sent_lst]
 
-    neigh = KNeighborsClassifier(n_neighbors=10)
-    neigh.fit(X_train, y_train)
+    trainedModel = classifier(X_train, y_train)
 
     xna_test = []
     otr_test = []
@@ -207,7 +247,7 @@ def KNNClassifier(mat, idx_dict, xna_trn_lst, otr_trn_lst, xna_test_lst, otr_tes
         sent_lst = get_idx_lst_from_dict(idx_dict, xt)
         scores = []
         for si in sent_lst:
-            sco = neigh.predict([mat[si]])[0]
+            sco = trainedModel.predict([mat[si]])[0]
             scores.append(sco)
         cc = Counter(scores)
         if cc[1] / len(sent_lst) > threshold:
@@ -219,7 +259,7 @@ def KNNClassifier(mat, idx_dict, xna_trn_lst, otr_trn_lst, xna_test_lst, otr_tes
         sent_lst = get_idx_lst_from_dict(idx_dict, ot)
         scores = []
         for si in sent_lst:
-            sco = neigh.predict([mat[si]])[0]
+            sco = trainedModel.predict([mat[si]])[0]
             scores.append(sco)
         cc = Counter(scores)
         if cc[1] / len(sent_lst) > threshold:
@@ -227,7 +267,11 @@ def KNNClassifier(mat, idx_dict, xna_trn_lst, otr_trn_lst, xna_test_lst, otr_tes
         else:
             otr_test.append(0)
 
-    return xna_test, otr_test
+    precision, recall = get_precision_and_recall(xna_test, otr_test)
+    print(classifier.__name__ + ' precision {}, recall {}'.format(precision, recall))
+
+    # lst2file('trn_result.txt', xna_test)
+    # lst2file('otr_result.txt', otr_test)
 
 
 # Import original corpus
@@ -250,9 +294,6 @@ otr_news_lst = get_remain_list(list(index_dict.keys()), xna_news_lst)
 #     fout.write('\n')
 
 # Set 90% samples for training, 10% for testing
-# xna_news_sent_lst = get_index_lst_from_dict(index_dict, xna_news_lst)
-# otr_news_sent_lst = get_index_lst_from_dict(index_dict, otr_news_lst)
-
 samples_n = int(len(xna_news_lst) * 0.9)
 
 xna_samples_train = random.sample(xna_news_lst, samples_n)
@@ -275,10 +316,22 @@ add_more_train_corpus(w2v_model, 'news_corpus.txt')
 get_word_prob = word_freq('news_corpus.txt')
 all_sent_mat = get_sent_vec(w2v_model, get_word_prob, 'news_corpus.txt')
 
-xna_test_result, otr_test_result = KNNClassifier(all_sent_mat, index_dict, xna_samples_train, otr_samples_train,
-                                                 xna_samples_test,
-                                                 otr_samples_test)
-lst2file('xna_test_result.txt', xna_test_result)
-lst2file('otr_test_result.txt', otr_test_result)
-precision, recall = get_precision_and_recall(xna_test_result, otr_test_result)
-print(precision, recall)
+## KNN
+main_func(KNNClassifier, all_sent_mat, index_dict, xna_samples_train, otr_samples_train,
+          xna_samples_test, otr_samples_test)
+
+## SVM
+main_func(SVMClassifier, all_sent_mat, index_dict, xna_samples_train, otr_samples_train,
+          xna_samples_test, otr_samples_test)
+
+## Decision tree
+main_func(DTClassifier, all_sent_mat, index_dict, xna_samples_train, otr_samples_train,
+          xna_samples_test, otr_samples_test)
+
+## Random forest
+main_func(RFClassifier, all_sent_mat, index_dict, xna_samples_train, otr_samples_train,
+          xna_samples_test, otr_samples_test)
+
+## XGBoost
+main_func(XGBClassifier, all_sent_mat, index_dict, xna_samples_train, otr_samples_train,
+          xna_samples_test, otr_samples_test)
