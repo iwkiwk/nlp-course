@@ -1,3 +1,12 @@
+# 抄袭判定算法流程
+# 1. 新闻预料处理，标记出新闻来源，来源为“新华社”或“新华网”的均视为新华社消息，标记为1，其他来源新闻标记为0
+# 2. 语料分句及分词之后写入文件，用作后面计算句子向量
+# 3. 训练样本与测试样本筛选，从新华社新闻中随机抽取90%样本作为训练样本，其余为测试样本，其他新闻中选取与新华社训练相同样本数参与模型训练
+# 4. 由于TF-IDF矩阵维数大、训练速度慢，本程序使用Word2Vec及词频率加权计算句子向量，作模型的输入，W2V使用之前训练的Wiki数据模型，并增加新的新闻语料训练
+# 5. 抄袭判定规则：如果一篇新闻中有超过30%的句子判定为抄袭，则认为这篇新闻抄袭了新华社的新闻
+# 6. 模型质量判断：计算模型判定的精确率和召回率判断模型的质量
+# 7. 调整模型训练参数，根据模型的精确率和召回率来优化模型
+
 import random
 import re
 from collections import Counter
@@ -11,11 +20,13 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import KNeighborsClassifier
 
 
+# Load trained w2v model
 def get_w2v_model(filename):
     model = Word2Vec.load(filename)
     return model
 
 
+# Remove special characters
 def rm_spec(sent):
     ret = re.sub('[\\n\s+\.\!\/_,$%^*(+\"\')]+|[+——\-()?【】《》“”！，。？、~@#￥%……&*（）]+', '', sent)
     if ret:
@@ -23,6 +34,7 @@ def rm_spec(sent):
     return ''
 
 
+# Split sentence
 def split_sent(sent):
     sents = re.split('[。？！\n]', sent)
     ret = []
@@ -38,6 +50,7 @@ def split_sent(sent):
     return ret
 
 
+# Process news
 def process_news_corpus(filename, news, lst):
     di = defaultdict(list)
     xna_lst = []
@@ -56,6 +69,7 @@ def process_news_corpus(filename, news, lst):
     return di, xna_lst
 
 
+# Add new corpus to train w2v model
 def add_more_train_corpus(model, filename):
     sen_list = []
     with open(filename, 'r', encoding='utf-8') as fin:
@@ -64,6 +78,7 @@ def add_more_train_corpus(model, filename):
     model.train(sentences=sen_list, total_examples=len(sen_list), epochs=1)
 
 
+# Get news sentences index list from a dict structure
 def get_index_lst_from_dict(di, lst):
     ret = []
     for i in lst:
@@ -83,6 +98,7 @@ def get_idx_lst_from_dict(di, idx):
     return ret
 
 
+# Calculate word frequency
 def word_freq(corpus_file):
     word_list = []
     with open(corpus_file, 'r', encoding='utf-8') as fin:
@@ -97,7 +113,8 @@ def word_freq(corpus_file):
     return get_word_freq
 
 
-def write_sent_vec_to_file(model, get_wd_freq, corpus_file):
+# Get sentence vector matrix
+def get_sent_vec(model, get_wd_freq, corpus_file):
     a = 0.001
     col = model.wv.vector_size
     with open(corpus_file, 'r', encoding='utf-8') as fin:
@@ -117,6 +134,7 @@ def write_sent_vec_to_file(model, get_wd_freq, corpus_file):
         return ret
 
 
+# Load sentence vector from saved file
 def get_all_sent_vec(filename):
     ret = np.fromfile(filename, dtype=np.float, sep=' ')
     return np.reshape(ret, (-1, 100))
@@ -153,6 +171,7 @@ def lst2file(filename, lst):
         fout.write('\n'.join([str(i) for i in lst]) + '\n')
 
 
+# Calculate model's precision and recall rate
 def get_precision_and_recall(xna_test_res, otr_test_res):
     cc1 = Counter(xna_test_res)
     cc2 = Counter(otr_test_res)
@@ -254,7 +273,7 @@ otr_samples_test = get_remain_list(otr_samples, otr_samples_train)
 w2v_model = get_w2v_model('wiki_w2v.model')
 add_more_train_corpus(w2v_model, 'news_corpus.txt')
 get_word_prob = word_freq('news_corpus.txt')
-all_sent_mat = write_sent_vec_to_file(w2v_model, get_word_prob, 'news_corpus.txt')
+all_sent_mat = get_sent_vec(w2v_model, get_word_prob, 'news_corpus.txt')
 
 xna_test_result, otr_test_result = KNNClassifier(all_sent_mat, index_dict, xna_samples_train, otr_samples_train,
                                                  xna_samples_test,
