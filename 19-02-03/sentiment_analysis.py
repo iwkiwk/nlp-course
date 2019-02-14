@@ -29,6 +29,28 @@ def add_more_train_data(model, data_list):
     model.train(sentences=sen_list, total_examples=len(sen_list), epochs=1)
 
 
+def process_tags(mat):
+    r = mat.shape[0]
+    c = mat.shape[1]
+    ret = np.zeros((r, c * 4))
+    for i in range(r):
+        for j in range(c):
+            ret[i, 4 * j + 1 - mat[i, j]] = 1
+    return ret
+
+
+def restore_tags(mat):
+    r = mat.shape[0]
+    c = mat.shape[1] // 4
+    ret = np.zeros((r, c))
+    for i in range(r):
+        for j in range(c):
+            lt = list(mat[i, 4 * j:4 * j + 4])
+            maxind = lt.index(max(lt))
+            ret[i, j] = 1 - maxind
+    return ret
+
+
 train_data = pd.read_csv('trainset.csv')
 test_data = pd.read_csv('testset.csv')
 validate_data = pd.read_csv('validationset.csv')
@@ -41,14 +63,8 @@ y_train = train_data.iloc[:, 2:22].values
 X_validation = validate_data['content'].values
 y_validation = validate_data.iloc[:, 2:22].values
 X_test = test_data['content'].values
-y_train_new = np.zeros((y_train.shape[0], y_train.shape[1] * 4))
-y_validation_new = np.zeros((y_validation.shape[0], y_validation.shape[1] * 4))
-for i in range(y_train.shape[0]):
-    for j in range(y_train.shape[1]):
-        y_train_new[i, 4 * j + 1 - y_train[i, j]] = 1
-for i in range(y_validation.shape[0]):
-    for j in range(y_validation.shape[1]):
-        y_validation_new[i, 4 * j + 1 - y_validation[i, j]] = 1
+y_train_new = process_tags(y_train)
+y_validation_new = process_tags(y_validation)
 
 max_features = 30000
 maxlen = 100
@@ -109,7 +125,7 @@ def get_model():
 model = get_model()
 
 batch_size = 32
-epochs = 5
+epochs = 1
 
 RocAuc = RocAucEvaluation(validation_data=(x_validation, y_validation_new), interval=1)
 
@@ -118,3 +134,6 @@ hist = model.fit(x_train, y_train_new, batch_size=batch_size, epochs=epochs,
                  callbacks=[RocAuc], verbose=2)
 
 y_pred = model.predict(x_test, batch_size=1024)
+result = restore_tags(y_pred)
+test_data.iloc[:, 2:22] = result.astype(int)
+test_data.to_csv('test_result.csv', index=False)
