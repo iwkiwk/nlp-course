@@ -9,6 +9,7 @@ from keras.layers import GRU, Bidirectional, GlobalAveragePooling1D, GlobalMaxPo
 from keras.layers import Input, Dense, Embedding, SpatialDropout1D, concatenate
 from keras.models import Model
 from keras.preprocessing import text, sequence
+from sklearn.metrics import f1_score
 from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings('ignore')
@@ -49,6 +50,17 @@ def restore_tags(mat):
             maxind = lt.index(max(lt))
             ret[i, j] = 1 - maxind
     return ret
+
+
+def calc_validation_score(model, x_vali, y_vali):
+    y_pred = model.predict(x_vali)
+    y_pred_ori = restore_tags(y_pred)
+    vali_scores_f1 = []
+    for i in range(20):
+        score = f1_score(y_vali[:, i], y_pred_ori[:, i], average='macro')
+        vali_scores_f1.append(score)
+    print('Validation F1 scores:', vali_scores_f1)
+    print('Validation average F1 score:', sum(vali_scores_f1) / 20)
 
 
 train_data = pd.read_csv('trainset.csv')
@@ -125,7 +137,7 @@ def get_model():
 model = get_model()
 
 batch_size = 32
-epochs = 1
+epochs = 3
 
 RocAuc = RocAucEvaluation(validation_data=(x_validation, y_validation_new), interval=1)
 
@@ -137,3 +149,5 @@ y_pred = model.predict(x_test, batch_size=1024)
 result = restore_tags(y_pred)
 test_data.iloc[:, 2:22] = result.astype(int)
 test_data.to_csv('test_result.csv', index=False)
+
+calc_validation_score(model, x_validation, y_validation)
