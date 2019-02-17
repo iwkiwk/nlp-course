@@ -10,7 +10,6 @@ from keras.layers import Input, Dense, Embedding, SpatialDropout1D, concatenate
 from keras.models import Model
 from keras.preprocessing import text, sequence
 from sklearn.metrics import f1_score
-from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings('ignore')
 os.environ['OMP_NUM_THREADS'] = '4'
@@ -52,12 +51,10 @@ def restore_tags(mat):
     return ret
 
 
-def calc_validation_score(model, x_vali, y_vali):
-    y_pred = model.predict(x_vali)
-    y_pred_ori = restore_tags(y_pred)
+def calc_f1_score(y_vali, y_pred):
     vali_scores_f1 = []
     for i in range(20):
-        score = f1_score(y_vali[:, i], y_pred_ori[:, i], average='macro')
+        score = f1_score(y_vali[:, i], y_pred[:, i], average='macro')
         vali_scores_f1.append(score)
     print('Validation F1 scores:', vali_scores_f1)
     print('Validation average F1 score:', sum(vali_scores_f1) / 20)
@@ -67,7 +64,7 @@ train_data = pd.read_csv('trainset.csv')
 test_data = pd.read_csv('testset.csv')
 validate_data = pd.read_csv('validationset.csv')
 
-w2v_model = load_w2v_model('../../input/w2v/w2v.model')
+w2v_model = load_w2v_model('../../input/w2v_100/w2v.model')
 add_more_train_data(w2v_model, train_data['content'])
 
 X_train = train_data['content'].values
@@ -78,8 +75,25 @@ X_test = test_data['content'].values
 y_train_new = process_tags(y_train)
 y_validation_new = process_tags(y_validation)
 
+# from collections import Counter
+# nums = []
+# for i in range(X_train.shape[0]):
+#     nums.append(len(X_train[i].split()))
+# sum(nums) / len(nums)
+# max(nums)
+# cc = Counter(nums)
+# 
+# def less_than_percent(n):
+#     n_ = 0
+#     for k, v in cc.items():
+#         if k <= n:
+#             n_ += v
+#     return n_ / len(nums)
+## 96% sentences have less than 300 words
+# print(less_than_percent(300))
+
 max_features = 30000
-maxlen = 100
+maxlen = 300
 embed_size = 100
 
 tokenizer = text.Tokenizer(num_words=max_features)
@@ -113,8 +127,9 @@ class RocAucEvaluation(Callback):
     def on_epoch_end(self, epoch, logs={}):
         if epoch % self.interval == 0:
             y_pred = self.model.predict(self.X_val, verbose=0)
-            score = roc_auc_score(self.y_val, y_pred)
-            print("\n ROC-AUC - epoch: %d - score: %.6f \n" % (epoch + 1, score))
+            target_ = restore_tags(self.y_val)
+            pred_ = restore_tags(y_pred)
+            calc_f1_score(target_, pred_)
 
 
 def get_model():
@@ -137,7 +152,7 @@ def get_model():
 model = get_model()
 
 batch_size = 32
-epochs = 3
+epochs = 10
 
 RocAuc = RocAucEvaluation(validation_data=(x_validation, y_validation_new), interval=1)
 
@@ -149,5 +164,3 @@ y_pred = model.predict(x_test, batch_size=1024)
 result = restore_tags(y_pred)
 test_data.iloc[:, 2:22] = result.astype(int)
 test_data.to_csv('test_result.csv', index=False)
-
-calc_validation_score(model, x_validation, y_validation)
