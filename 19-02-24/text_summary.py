@@ -6,7 +6,9 @@ import jieba
 import networkx as nx
 import numpy as np
 import pandas as pd
+from gensim.corpora.dictionary import Dictionary
 from gensim.models import FastText
+from gensim.models import LdaModel
 from gensim.models.word2vec import LineSentence
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -128,9 +130,10 @@ def sentence_embedding(model, prob_func, stop_words):
 
 
 # rank cosine distance between sentence vector and whole text vector
-def get_correlations(sents, sent_vec_func):
-    text = ' '.join(sents)
-    text_vec = sent_vec_func(text)
+def get_correlations(sents, sent_vec_func, text_vec=None):
+    if text_vec is None:
+        text = ' '.join(sents)
+        text_vec = sent_vec_func(text)
     sims = []
     for sent in sents:
         vec = sent_vec_func(sent)
@@ -138,6 +141,23 @@ def get_correlations(sents, sent_vec_func):
         sims.append(sim)
     ret = [(sents[ind], sims[ind]) for ind in sorted(range(len(sims)), key=lambda i: sims[i], reverse=True)]
     return ret
+
+
+#### Method 3: using LDA model ####
+# similarity ranking using distance between sentence vec and topic vec
+def get_topic_words(sent, stop_words, cnt=15):
+    sent = re.sub(r'[\r\n]', '', sent)
+    wlst = jieba.lcut(sent)
+    ls = []
+    for w in wlst:
+        if w not in stop_words:
+            ls.append(w)
+
+    di = Dictionary([ls])
+    corpus = [di.doc2bow(text) for text in [ls]]
+    lda = LdaModel(corpus, id2word=di, num_topics=1)
+    tp = lda.print_topics(num_words=cnt)[0][1]
+    return re.findall('"(.+?)"', tp)
 
 
 if __name__ == '__main__':
@@ -163,4 +183,11 @@ if __name__ == '__main__':
     get_sentence_vec = sentence_embedding(model, prob_func, stop_words)
     score_func_embed = partial(get_correlations, sent_vec_func=get_sentence_vec)
     output = get_summarization_simple(news, score_func_embed, 200)
+    print(output)
+
+    ## method 3, results similar to method 2
+    topic_words = get_topic_words(news, stop_words, 15)
+    topic_vec = get_sentence_vec(' '.join(topic_words))
+    score_func_topic = partial(get_correlations, sent_vec_func=get_sentence_vec, text_vec=topic_vec)
+    output = get_summarization_simple(news, score_func_topic, 200)
     print(output)
